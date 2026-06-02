@@ -5,10 +5,13 @@ import requests
 from flask import Flask, request, jsonify, render_template_string
 from flask_cors import CORS
 from dotenv import load_dotenv
+import datetime
+from apscheduler.schedulers.background import BackgroundScheduler
 
 # 載入環境變數
 load_dotenv()
 LINE_TOKEN = os.getenv('LINE_TOKEN')
+LINE_USER_ID = os.getenv('LINE_USER_ID')
 
 app = Flask(__name__)
 # 啟用 CORS 避免跨域問題
@@ -49,23 +52,87 @@ def init_db():
 # 啟動時確保資料庫與資料表存在
 init_db()
 
-def send_line_notify(message):
-    """發送 LINE Notify 通知"""
-    if not LINE_TOKEN:
-        print("未設定 LINE_TOKEN，無法發送通知")
+def check_missed_doses():
+    """背景排程：檢查是否超時未服藥"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        
+        # 1. 取得排程與超時時間
+        c.execute('SELECT times, timeout_min FROM schedule WHERE id = 1')
+        row = c.fetchone()
+        if not row:
+            conn.close()
+            return
+            
+        times = json.loads(row[0])
+        timeout_min = row[1]
+        
+        now = datetime.datetime.now()
+        
+        for t_str in times:
+            # 取得預定服藥時間
+            hour, minute = map(int, t_str.split(':'))
+            scheduled_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            
+            # 取得超時判定時間
+            timeout_time = scheduled_time + datetime.timedelta(minutes=timeout_min)
+            
+            # 檢查目前時間是否剛好在「超時時間」的一分鐘內
+            # 這樣每分鐘執行一次的排程，只會在此區間內觸發一次
+            if timeout_time <= now < timeout_time + datetime.timedelta(minutes=1):
+                # 檢查預定時間前2小時，到目前的這段時間，是否有實際開蓋服藥紀錄
+                check_start = scheduled_time - datetime.timedelta(hours=2)
+                
+                c.execute('''
+                    SELECT id FROM sensor_data
+                    WHERE timestamp >= ? AND timestamp <= ? 
+                    AND tremor_index != -1
+                ''', (check_start.strftime('%Y-%m-%d %H:%M:%S'), now.strftime('%Y-%m-%d %H:%M:%S')))
+                
+                record = c.fetchone()
+                
+                if not record:
+                    # 沒有服藥紀錄 -> 觸發漏吃通知並寫入資料庫
+                    print(f"[{now.strftime('%H:%M:%S')}] 偵測到漏吃！排程時間：{t_str}")
+                    send_line(f"⏰ 超時未服藥提醒！長者原訂於 {t_str} 服藥，已超過設定之等待時間，請確認長者狀況。")
+                    
+                    c.execute('''
+                        INSERT INTO sensor_data (tremor_index, duration_ms, is_abnormal)
+                        VALUES (?, ?, ?)
+                    ''', (-1, 0, 1))
+                    conn.commit()
+
+        conn.close()
+    except Exception as e:
+        print(f"背景排程檢查漏吃發生錯誤: {e}")
+
+# 啟動背景排程器
+scheduler = BackgroundScheduler(daemon=True)
+scheduler.add_job(func=check_missed_doses, trigger="interval", minutes=1)
+scheduler.start()
+
+def send_line(msg):
+    """發送 LINE Messaging API 通知"""
+    if not LINE_TOKEN or not LINE_USER_ID:
+        print("未設定 LINE_TOKEN 或 LINE_USER_ID，無法發送通知")
         return
     
-    headers = {
-        "Authorization": f"Bearer {LINE_TOKEN}"
-    }
-    data = {
-        "message": message
-    }
     try:
-        response = requests.post("https://notify-api.line.me/api/notify", headers=headers, data=data)
+        response = requests.post(
+            'https://api.line.me/v2/bot/message/push',
+            headers={
+                'Authorization': f'Bearer {LINE_TOKEN}',
+                'Content-Type': 'application/json'
+            },
+            json={
+                'to': LINE_USER_ID,
+                'messages': [{'type': 'text', 'text': msg}]
+            }
+        )
         response.raise_for_status()
     except Exception as e:
-        print(f"發送 LINE Notify 失敗: {e}")
+        print(f"發送 LINE Message 失敗: {e}")
 
 @app.route('/api/sensor_data', methods=['POST'])
 def receive_sensor_data():
@@ -83,12 +150,15 @@ def receive_sensor_data():
             
         # 判斷狀態
         if tremor_index == -1:
-            send_line_notify("\n⏰ 超時未服藥提醒！請確認長者狀況。")
+            send_line("⏰ 收到藥盒通知：超時未服藥提醒！請確認長者狀況。")
             is_abnormal = 1 # 視為異常狀況記錄
         else:
             is_abnormal = 1 if tremor_index > 30 else 0
             if is_abnormal:
-                send_line_notify(f"\n⚠️ 偵測到震顫異常！TI={tremor_index:.1f}%，開蓋時間={duration_ms}ms")
+                send_line(f"⚠️ 警告！偵測到長者服藥時手部震顫異常！(TI={tremor_index:.1f}%，開蓋時間={duration_ms}ms)，請留意長者身體狀況。")
+            else:
+                now_str = datetime.datetime.now().strftime("%H:%M")
+                send_line(f"✅ 長者已於 {now_str} 完成服藥，震顫指數正常。")
                 
         # 存入資料庫
         conn = sqlite3.connect(DB_FILE)

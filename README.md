@@ -1,11 +1,12 @@
 # 💊 智慧藥盒 (Smart Pill Box) Backend
 
-這是一個 IoT 智慧藥盒專題的後端 API 伺服器，使用 Python Flask 建立，並搭配 SQLite 作為資料庫。此後端設計用於接收來自 ESP32 的感測器資料 (MPU-6050 震顫指數與開蓋時長)，並提供即時網頁儀表板供照顧者監控。支援異常震顫或超時未服藥的 LINE Notify 通知。
+這是一個 IoT 智慧藥盒專題的後端 API 伺服器，使用 Python Flask 建立，並搭配 SQLite 作為資料庫。此後端設計用於接收來自 ESP32 的感測器資料 (MPU-6050 震顫指數與開蓋時長)，並提供即時網頁儀表板供照顧者監控。支援異常震顫或超時未服藥的 LINE 官方帳號 (Messaging API) 通知。
 
 ## ✨ 功能特色
 
 - **RESTful API**: 接收 ESP32 傳送的震顫數據與服藥狀態。
-- **LINE Notify 整合**: 偵測到異常震顫指數 (TI > 30) 或「超時未服藥」時，自動發送 LINE 通知。
+- **LINE Messaging API 整合**: 正常服藥、偵測到異常震顫指數 (TI > 30)，或是「超時未服藥」時，自動發送對應的 LINE 訊息通知家屬。
+- **後端主動排程檢查**: 內建 `APScheduler` 背景任務，每分鐘主動比對預定時間與開蓋紀錄，精準判斷漏吃事件，不再單純依賴硬體連線。
 - **排程管理**: 提供 API 供 ESP32 同步預定服藥時間與超時判定條件。
 - **即時網頁儀表板**: 內建現代化設計的 Web Dashboard，免安裝前端框架，每 10 秒自動刷新最新服藥記錄。
 - **歷史服藥日曆**: 提供月曆介面，以顏色視覺化標示每日服藥狀態（正常、漏吃、震顫異常），並可點擊查看詳細記錄。
@@ -26,15 +27,16 @@
 請確認您的環境中已安裝 Python 3，接著執行：
 
 ```bash
-pip install flask flask-cors python-dotenv requests
+pip install flask flask-cors python-dotenv requests apscheduler
 ```
 
 ### 2. 設定環境變數
 
-專案根目錄下有一個 `.env` 檔案，請在裡面填入您的 LINE Notify Token：
+專案根目錄下有一個 `.env` 檔案，請在裡面填入您的 LINE Messaging API 的 Token 與您的 User ID：
 
 ```env
-LINE_TOKEN=your_line_notify_token_here
+LINE_TOKEN=your_line_channel_access_token_here
+LINE_USER_ID=your_line_user_id_here
 ```
 
 ### 3. 啟動伺服器
@@ -54,7 +56,7 @@ python app.py
 - **Content-Type**: `application/json`
 - **Payload 範例**:
   - 正常/異常紀錄: `{"tremor_index": 11.93, "duration_ms": 2100}`
-  - 未服藥事件: `{"tremor_index": -1, "duration_ms": 0}`
+  - *(註：目前「漏吃」已改由後端背景排程主動檢查，硬體端不再主動發送 `{"tremor_index": -1}`)*
 
 ### 2. 取得最近 30 筆歷史記錄
 - **Endpoint**: `GET /api/logs`
