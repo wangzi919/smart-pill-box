@@ -5,7 +5,6 @@
 #include <Wire.h>
 #include <arduinoFFT.h>
 
-
 // ═══════════════════════════════════════
 const char *WIFI_SSID = "TP-Link_A798";
 const char *WIFI_PASSWORD = "43257294";
@@ -37,6 +36,7 @@ bool lidWasOpen = false;
 unsigned long lidOpenTime = 0;
 bool reminded[10] = {};
 bool missedSent[10] = {};
+float lastTI = 0;
 
 // ───────────────────────────────────────
 void beep(int times) {
@@ -277,27 +277,28 @@ void setup() {
 void loop() {
   lidOpen = (digitalRead(HALL_PIN) == HIGH);
 
-  // 開蓋 → 停止持續催藥
+  // 開蓋 → 停止持續催藥，並開始採樣震顫數據
   if (lidOpen && !lidWasOpen) {
     lidOpenTime = millis();
     lidWasOpen = true;
-    Serial.println("偵測到開蓋！");
+    Serial.println("偵測到開蓋！開始採樣震顫數據...");
     if (isAlerting) {
       isAlerting = false;
       alertingIndex = -1;
       ledcWriteTone(0, 0);
       Serial.println("已服藥，停止提醒");
     }
+    // 馬上開始採樣，記錄拿藥盒這段時間的手部狀態
+    lastTI = calcTremorIndex();
   }
 
-  // 關蓋 → 分析並上傳
+  // 關蓋 → 上傳
   if (!lidOpen && lidWasOpen) {
     unsigned long duration = millis() - lidOpenTime;
     Serial.print("開蓋時長：");
     Serial.print(duration);
     Serial.println("ms");
-    float TI = calcTremorIndex();
-    uploadData(TI, duration);
+    uploadData(lastTI, duration);
     lidWasOpen = false;
   }
 

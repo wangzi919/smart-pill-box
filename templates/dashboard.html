@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">即時監控</h1>
+    <p class="page-subtitle">每 10 秒自動刷新最新服藥記錄（表單操作時暫停）</p>
+</div>
+
+<div class="card">
+    <h2 class="card-title">最新服藥記錄</h2>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>記錄時間</th>
+                    <th>震顫指數 (TI)</th>
+                    <th>個人基準線</th>
+                    <th>開蓋時長 (ms)</th>
+                    <th>狀態判定</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr>
+                    <td>{{ log.timestamp }}</td>
+                    <td>
+                        {% if log.tremor_index == -1 %}
+                            <span style="color: var(--text-muted);">N/A</span>
+                        {% else %}
+                            {{ log.tremor_index }}
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if log.tremor_index == -1 %}
+                            <span style="color: var(--text-muted);">N/A</span>
+                        {% else %}
+                            {{ "%.1f"|format(log.baseline) }}
+                        {% endif %}
+                    </td>
+                    <td>{{ log.duration_ms }}</td>
+                    <td>
+                        {% if log.tremor_index == -1 %}
+                            <span class="badge badge-missed">超時未服藥</span>
+                        {% elif log.is_abnormal == 1 %}
+                            <span class="badge badge-abnormal">趨勢異常</span>
+                        {% else %}
+                            <span class="badge badge-normal">正常</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 24px;">目前暫無任何服藥記錄</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <h2 class="card-title">🕒 排程與超時設定</h2>
+    <div class="schedule-form">
+        <div class="form-group">
+            <label class="form-label">服藥超時判定時間 (分鐘)</label>
+            <input type="number" id="timeout_min" class="form-input" value="{{ schedule.timeout_min }}" min="1" style="max-width: 200px;">
+            <p style="margin-top: 6px; font-size: 0.85rem; color: var(--text-muted);">超過此時間未開蓋，將視為「超時未服藥」並觸發通知。</p>
+        </div>
+        
+        <div class="form-group">
+            <label class="form-label">預定服藥時間列表</label>
+            <div id="timeList" style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
+                {% for t in schedule.times %}
+                <div class="badge" style="background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-main); font-size: 1rem; padding: 6px 14px;" data-time="{{ t }}">
+                    <span>{{ t }}</span>
+                    <button class="btn-remove" onclick="removeTime(this)" style="background: none; border: none; color: var(--danger); margin-left: 8px; cursor: pointer; font-size: 1rem;">&times;</button>
+                </div>
+                {% endfor %}
+            </div>
+            
+            <div style="display: flex; gap: 12px; align-items: center;">
+                <input type="time" id="newTime" class="form-input" style="max-width: 150px;">
+                <button class="btn btn-primary" onclick="addTime()" style="background-color: var(--success);">+ 新增時間</button>
+            </div>
+        </div>
+        
+        <div style="margin-top: 24px; text-align: right;">
+            <button class="btn btn-primary" onclick="saveSchedule()">儲存所有排程設定</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let isEditing = false;
+    
+    // 監聽所有 input，有操作時暫停自動刷新
+    document.querySelectorAll('input').forEach(input => {
+        input.addEventListener('focus', () => isEditing = true);
+        input.addEventListener('blur', () => isEditing = false);
+    });
+
+    setInterval(() => {
+        if (!isEditing) {
+            window.location.reload();
+        }
+    }, 10000);
+
+    function removeTime(btn) {
+        isEditing = true;
+        btn.parentElement.remove();
+    }
+
+    function addTime() {
+        isEditing = true;
+        const newTime = document.getElementById('newTime').value;
+        if (!newTime) return alert('請選擇時間');
+        
+        // 檢查是否重複
+        const existing = Array.from(document.querySelectorAll('#timeList span')).map(span => span.textContent);
+        if (existing.includes(newTime)) return alert('時間已存在');
+        
+        const div = document.createElement('div');
+        div.className = 'badge';
+        div.style.background = 'var(--bg-color)';
+        div.style.border = '1px solid var(--border-color)';
+        div.style.color = 'var(--text-main)';
+        div.style.fontSize = '1rem';
+        div.style.padding = '6px 14px';
+        div.setAttribute('data-time', newTime);
+        div.innerHTML = `<span>${newTime}</span><button class="btn-remove" onclick="removeTime(this)" style="background: none; border: none; color: var(--danger); margin-left: 8px; cursor: pointer; font-size: 1rem;">&times;</button>`;
+        
+        document.getElementById('timeList').appendChild(div);
+        document.getElementById('newTime').value = '';
+    }
+
+    function saveSchedule() {
+        const timeout_min = parseInt(document.getElementById('timeout_min').value);
+        const times = Array.from(document.querySelectorAll('#timeList span')).map(span => span.textContent);
+        
+        if (isNaN(timeout_min) || timeout_min < 1) return alert('請輸入有效的超時時間');
+        
+        times.sort();
+        
+        fetch('/api/schedule', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ times: times, timeout_min: timeout_min })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.error) alert('錯誤: ' + data.error);
+            else {
+                alert('設定已儲存！');
+                isEditing = false;
+                window.location.reload();
+            }
+        })
+        .catch(err => alert('連線錯誤'));
+    }
+</script>
+{% endblock %}

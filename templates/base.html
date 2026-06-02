@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智慧藥盒監控系統</title>
+    <!-- 引入 Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            /* 現代高質感配色系統 (Modern Premium Palette) */
+            --bg-color: #f8fafc;        /* 淺灰背景 */
+            --surface-color: #ffffff;   /* 卡片白 */
+            --primary: #3b82f6;         /* 科技藍 */
+            --primary-hover: #2563eb;
+            --text-main: #1e293b;       /* 深灰字體 */
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            
+            /* 狀態色 */
+            --success: #10b981;
+            --success-bg: #d1fae5;
+            --warning: #f59e0b;
+            --warning-bg: #fef3c7;
+            --danger: #ef4444;
+            --danger-bg: #fee2e2;
+            --missed: #64748b;
+            --missed-bg: #f1f5f9;
+
+            /* 陰影與圓角 */
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --radius-md: 12px;
+            --radius-sm: 8px;
+            --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* 頂部導覽列 */
+        .navbar {
+            background-color: var(--surface-color);
+            box-shadow: var(--shadow-sm);
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+
+        .nav-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            height: 64px;
+        }
+
+        .nav-brand {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--primary);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-right: 48px;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 24px;
+        }
+
+        .nav-link {
+            text-decoration: none;
+            color: var(--text-muted);
+            font-weight: 500;
+            padding: 8px 12px;
+            border-radius: var(--radius-sm);
+            transition: var(--transition);
+        }
+
+        .nav-link:hover {
+            color: var(--primary);
+            background-color: #eff6ff;
+        }
+
+        .nav-link.active {
+            color: var(--primary);
+            background-color: #eff6ff;
+        }
+
+        /* 頁面主要內容 */
+        .main-container {
+            max-width: 1200px;
+            margin: 32px auto;
+            padding: 0 24px;
+        }
+
+        .page-header {
+            margin-bottom: 24px;
+        }
+
+        .page-title {
+            font-size: 1.875rem;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .page-subtitle {
+            color: var(--text-muted);
+            font-size: 1rem;
+            margin-top: 4px;
+        }
+
+        /* 卡片設計 */
+        .card {
+            background-color: var(--surface-color);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-md);
+            padding: 24px;
+            margin-bottom: 24px;
+            border: 1px solid var(--border-color);
+        }
+
+        .card-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--text-main);
+        }
+
+        /* 表格設計 */
+        .table-container {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f8fafc;
+            color: var(--text-muted);
+            font-weight: 600;
+            font-size: 0.875rem;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        td {
+            padding: 16px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.95rem;
+            color: var(--text-main);
+            transition: var(--transition);
+        }
+
+        tbody tr:hover td {
+            background-color: #f1f5f9;
+        }
+
+        /* 狀態標籤 Badges (Glassmorphism 風格) */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .badge-normal {
+            background-color: var(--success-bg);
+            color: var(--success);
+        }
+
+        .badge-abnormal {
+            background-color: var(--danger-bg);
+            color: var(--danger);
+        }
+
+        .badge-missed {
+            background-color: var(--missed-bg);
+            color: var(--missed);
+        }
+
+        /* 按鈕設計 */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 16px;
+            border-radius: var(--radius-sm);
+            font-weight: 500;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: var(--transition);
+            border: none;
+            outline: none;
+        }
+
+        .btn-primary {
+            background-color: var(--primary);
+            color: white;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .btn-primary:hover {
+            background-color: var(--primary-hover);
+            transform: translateY(-1px);
+        }
+
+        /* 表單設計 */
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-label {
+            display: block;
+            font-weight: 500;
+            color: var(--text-main);
+            margin-bottom: 8px;
+            font-size: 0.95rem;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            font-size: 0.95rem;
+            color: var(--text-main);
+            transition: var(--transition);
+            font-family: inherit;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+
+    <!-- 導覽列 -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/" class="nav-brand">
+                💊 智慧藥盒
+            </a>
+            <div class="nav-links">
+                <a href="/" class="nav-link {% if active_page == 'dashboard' %}active{% endif %}">即時監控</a>
+                <a href="/calendar" class="nav-link {% if active_page == 'calendar' %}active{% endif %}">歷史日曆</a>
+                <a href="/trend" class="nav-link {% if active_page == 'trend' %}active{% endif %}">趨勢分析</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 內容區 -->
+    <main class="main-container">
+        {% block content %}{% endblock %}
+    </main>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

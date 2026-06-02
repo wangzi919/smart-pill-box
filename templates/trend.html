@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">📈 震顫趨勢分析</h1>
+    <p class="page-subtitle">觀察過去 7 天的震顫指數與個人基準線的變化趨勢</p>
+</div>
+
+<div class="card">
+    <div style="position: relative; height: 500px; width: 100%;">
+        <canvas id="trendChart"></canvas>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function loadTrendData() {
+        try {
+            const res = await fetch('/api/tremor_report');
+            const data = await res.json();
+            
+            if (data.length === 0) {
+                // 如果沒有資料的處理
+                return;
+            }
+
+            const labels = data.map(row => row.date);
+            const tiData = data.map(row => row.avg_ti);
+            const baselineData = data.map(row => row.avg_baseline);
+
+            const ctx = document.getElementById('trendChart').getContext('2d');
+            
+            // 建立漸層
+            const gradientTI = ctx.createLinearGradient(0, 0, 0, 400);
+            gradientTI.addColorStop(0, 'rgba(59, 130, 246, 0.5)'); // primary blue
+            gradientTI.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+            
+            const gradientBaseline = ctx.createLinearGradient(0, 0, 0, 400);
+            gradientBaseline.addColorStop(0, 'rgba(16, 185, 129, 0.5)'); // success green
+            gradientBaseline.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: '實際震顫指數 (TI)',
+                            data: tiData,
+                            borderColor: '#3b82f6',
+                            backgroundColor: gradientTI,
+                            borderWidth: 3,
+                            pointBackgroundColor: '#ffffff',
+                            pointBorderColor: '#3b82f6',
+                            pointBorderWidth: 2,
+                            pointRadius: 5,
+                            pointHoverRadius: 7,
+                            fill: true,
+                            tension: 0.4 // 讓線條平滑
+                        },
+                        {
+                            label: '個人基準線 (Baseline)',
+                            data: baselineData,
+                            borderColor: '#10b981',
+                            backgroundColor: gradientBaseline,
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            pointBackgroundColor: '#ffffff',
+                            pointBorderColor: '#10b981',
+                            pointBorderWidth: 2,
+                            pointRadius: 4,
+                            pointHoverRadius: 6,
+                            fill: true,
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                font: {
+                                    family: "'Inter', sans-serif",
+                                    size: 14,
+                                    weight: '500'
+                                },
+                                color: '#1e293b',
+                                usePointStyle: true,
+                                padding: 20
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                            titleColor: '#1e293b',
+                            bodyColor: '#475569',
+                            borderColor: '#e2e8f0',
+                            borderWidth: 1,
+                            padding: 12,
+                            boxPadding: 6,
+                            titleFont: {
+                                family: "'Inter', sans-serif",
+                                size: 14,
+                                weight: '600'
+                            },
+                            bodyFont: {
+                                family: "'Inter', sans-serif",
+                                size: 13
+                            },
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.y !== null) {
+                                        label += context.parsed.y + '%';
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                font: {
+                                    family: "'Inter', sans-serif",
+                                    size: 13
+                                },
+                                color: '#64748b'
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: '#f1f5f9',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                font: {
+                                    family: "'Inter', sans-serif",
+                                    size: 13
+                                },
+                                color: '#64748b',
+                                callback: function(value) {
+                                    return value + '%';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (e) {
+            console.error("Failed to load trend data", e);
+        }
+    }
+
+    loadTrendData();
+</script>
+{% endblock %}
