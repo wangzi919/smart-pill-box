@@ -190,9 +190,6 @@ def receive_sensor_data():
                 if len(last_two) == 2 and last_two[0][0] == 1 and last_two[1][0] == 1:
                     ratio = tremor_index / baseline if baseline > 0 else 0
                     send_line(f"⚠️ 震顫趨勢異常！近期 TI={tremor_index:.1f}%，基準線={baseline:.1f}%，為平均的 {ratio:.1f} 倍，建議觀察。")
-            else:
-                now_str = datetime.datetime.now().strftime("%H:%M")
-                send_line(f"✅ 長者已於 {now_str} 完成服藥，震顫指數正常。")
                 
         # 存入資料庫
         c.execute('''
