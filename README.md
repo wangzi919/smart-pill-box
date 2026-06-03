@@ -6,6 +6,7 @@
 
 - **RESTful API**: 接收 ESP32 傳送的震顫數據與服藥狀態。
 - **LINE Messaging API 整合**: 正常服藥、偵測到連續震顫趨勢異常 (TI > 基準線 1.5 倍)，或是「超時未服藥」時，自動發送對應的 LINE 訊息通知家屬。
+- **LLM 人性化通知**: 震顫異常時可透過 OpenRouter LLM 將震顫指數、基準線與近期紀錄轉成溫和、適合家屬閱讀的繁體中文 LINE 通知。
 - **個人化基準線與趨勢分析**: 系統會動態計算過去 7 天的平均震顫指數作為「基準線」，並提供獨立的 `/trend` 圖表分析頁面，視覺化呈現震顫指數與基準線的變化趨勢。
 - **後端主動排程檢查**: 內建 `APScheduler` 背景任務，每分鐘主動比對預定時間與開蓋紀錄，精準判斷漏吃事件。
 - **排程管理**: 提供 API 供 ESP32 同步預定服藥時間與超時判定條件。
@@ -32,12 +33,18 @@ pip install flask flask-cors python-dotenv requests apscheduler
 
 ### 2. 設定環境變數
 
-專案根目錄下有一個 `.env` 檔案，請在裡面填入您的 LINE Messaging API 的 Token 與您的 User ID：
+專案根目錄下有一個 `.env` 檔案，請在裡面填入您的 LINE Messaging API 與 OpenRouter 設定：
 
 ```env
 LINE_TOKEN=your_line_channel_access_token_here
 LINE_USER_ID=your_line_user_id_here
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+LLM_MODEL=google/gemini-2.5-flash-lite
 ```
+
+`OPENROUTER_API_KEY` 用於產生震顫異常時的人性化 LINE 通知文字；`LLM_MODEL` 可依 OpenRouter 可用模型調整。若未設定 OpenRouter API key，或 LLM API 暫時失敗，系統會自動 fallback 回原本固定格式通知，LINE 通知不會因此中斷。
+
+LLM 只用於產生通知文字，不會取代原本的震顫異常判斷邏輯，也不會直接操作 SQLite 資料庫。系統仍由 Python 查詢並整理震顫資料摘要後，再交給 LLM 改寫成適合家屬閱讀的提醒。
 
 ### 3. 啟動伺服器
 

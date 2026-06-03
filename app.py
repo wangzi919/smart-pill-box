@@ -12,6 +12,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 load_dotenv()
 LINE_TOKEN = os.getenv('LINE_TOKEN')
 LINE_USER_ID = os.getenv('LINE_USER_ID')
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+LLM_MODEL = os.getenv('LLM_MODEL', 'google/gemini-2.5-flash-lite')
 
 app = Flask(__name__)
 # 啟用 CORS 避免跨域問題
@@ -140,6 +142,88 @@ def send_line(msg):
     except Exception as e:
         print(f"發送 LINE Message 失敗: {e}")
 
+def get_recent_tremor_records(limit=5):
+    """查詢最近幾筆有效震顫紀錄，排除漏吃紀錄供 LLM 摘要使用"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute('''
+            SELECT timestamp, tremor_index, duration_ms, is_abnormal, COALESCE(baseline, 0.0) as baseline
+            FROM sensor_data
+            WHERE tremor_index != -1
+            ORDER BY id DESC LIMIT ?
+        ''', (limit,))
+        rows = c.fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+    except Exception as e:
+        print(f"查詢近期震顫紀錄失敗: {e}")
+        return []
+
+def generate_ai_tremor_message(context):
+    """呼叫 OpenRouter，將震顫異常資料轉成適合 LINE 的人性化提醒"""
+    if not OPENROUTER_API_KEY:
+        raise RuntimeError("未設定 OPENROUTER_API_KEY")
+
+    system_prompt = (
+        "你是一個智慧藥盒照護提醒助手。"
+        "請根據震顫指數資料，用繁體中文寫出簡短、溫和、人性化的 LINE 通知。"
+        "不要做醫療診斷，不要誇大風險。"
+    )
+    user_prompt = (
+        "請依照以下資料產生一則可直接傳送到 LINE 的提醒文字。\n"
+        "只輸出最終通知文字，禁止解釋你的思考過程，禁止使用英文。\n"
+        "輸出限制：繁體中文、請寫兩句、約 80～120 個中文字、可以使用 emoji 但不要過多、"
+        "語氣像照護提醒不要像警報、不要輸出 JSON。\n"
+        "不可使用「病情惡化」、「罹患疾病」等絕對醫療判斷；"
+        "只能說「建議觀察」、「可留意」、「若持續發生可考慮諮詢專業人員」。\n\n"
+        f"event_type: {context.get('event_type')}\n"
+        f"current tremor_index: {context.get('tremor_index')}\n"
+        f"baseline: {context.get('baseline')}\n"
+        f"ratio: {context.get('ratio')}\n"
+        f"duration_ms: {context.get('duration_ms')}\n"
+        f"recent_records: {json.dumps(context.get('recent_records', []), ensure_ascii=False)}"
+    )
+
+    messages = [
+        {'role': 'system', 'content': system_prompt},
+        {'role': 'user', 'content': user_prompt}
+    ]
+    invalid_markers = ['We need', 'LINE notification', 'JSON', 'system prompt', 'user prompt']
+
+    for attempt in range(2):
+        response = requests.post(
+            'https://openrouter.ai/api/v1/chat/completions',
+            headers={
+                'Authorization': f'Bearer {OPENROUTER_API_KEY}',
+                'Content-Type': 'application/json'
+            },
+            json={
+                'model': LLM_MODEL,
+                'messages': messages,
+                'temperature': 0.4,
+                'max_tokens': 180
+            },
+            timeout=10
+        )
+        response.raise_for_status()
+        data = response.json()
+        message = data['choices'][0]['message']['content'].strip()
+
+        if not message or len(message) > 200 or any(marker in message for marker in invalid_markers):
+            raise ValueError("LLM 回傳內容不適合直接發送")
+        if len(message) >= 70 or attempt == 1:
+            return message
+
+        messages.append({'role': 'assistant', 'content': message})
+        messages.append({
+            'role': 'user',
+            'content': '上一則太短，請保留同樣語氣，改寫成兩句、約 80～120 個中文字，只輸出 LINE 通知文字。'
+        })
+
+    raise ValueError("LLM 未產生可用提醒")
+
 @app.route('/api/sensor_data', methods=['POST'])
 def receive_sensor_data():
     """接收 ESP32 傳送的感測器資料"""
@@ -189,7 +273,22 @@ def receive_sensor_data():
                 last_two = c.fetchall()
                 if len(last_two) == 2 and last_two[0][0] == 1 and last_two[1][0] == 1:
                     ratio = tremor_index / baseline if baseline > 0 else 0
-                    send_line(f"⚠️ 震顫趨勢異常！近期 TI={tremor_index:.1f}%，基準線={baseline:.1f}%，為平均的 {ratio:.1f} 倍，建議觀察。")
+                    fallback_msg = f"⚠️ 震顫趨勢異常！近期 TI={tremor_index:.1f}%，基準線={baseline:.1f}%，為平均的 {ratio:.1f} 倍，建議觀察。"
+                    try:
+                        recent_records = get_recent_tremor_records()
+                        context = {
+                            "event_type": "tremor_abnormal",
+                            "tremor_index": tremor_index,
+                            "baseline": baseline,
+                            "ratio": ratio,
+                            "duration_ms": duration_ms,
+                            "recent_records": recent_records
+                        }
+                        ai_msg = generate_ai_tremor_message(context)
+                        send_line(ai_msg if ai_msg else fallback_msg)
+                    except Exception as e:
+                        print(f"產生 AI 震顫提醒失敗，改用固定格式通知: {e}")
+                        send_line(fallback_msg)
             else:
                 now_str = datetime.datetime.now().strftime("%H:%M")
                 send_line(f"✅ 長者已於 {now_str} 完成服藥，震顫指數正常。")
