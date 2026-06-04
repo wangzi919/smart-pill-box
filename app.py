@@ -7,7 +7,7 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
-
+ 
 # 載入環境變數
 load_dotenv()
 LINE_TOKEN = os.getenv('LINE_TOKEN')
